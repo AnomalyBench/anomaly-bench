@@ -3,9 +3,25 @@ Exathlon
 
 > **A Benchmark for Explainable Anomaly Detection over Time Series**
 >
-> **Abstract:** *Access to high-quality data repositories and benchmarks have been instrumental in advancing the state of the art in many experimental research domains. While advanced analytics tasks over time series data have been gaining lots of attention, lack of such community resources severely limits scientific progress. In this paper, we present Exathlon, the first comprehensive public benchmark for explainable anomaly detection over high-dimensional time series data. Exathlon has been systematically constructed based on real data traces from repeated executions of large-scale stream processing jobs on an Apache Spark cluster. Some of these executions were intentionally disturbed by introducing instances of six different types of anomalous events (e.g., misbehaving inputs, resource contention, process failures). For each of the anomaly instances, ground truth labels for the root cause interval as well as those for the extended effect interval are provided, supporting the development and evaluation of a wide range of anomaly detection (AD) and explanation discovery (ED) tasks.We demonstrate the practical utility of Exathlon’s dataset, evaluation methodology, and end-to end data science pipeline design through an experimental study with three state-of-the-art AD and ED techniques.*
+> **Abstract:** *Access to high-quality data repositories and benchmarks have been instrumental in advancing the state of the art in many experimental research domains. While advanced analytics tasks over time series data have been gaining lots of attention, lack of such community resources severely limits scientific progress. In this paper, we present Exathlon, the first comprehensive public benchmark for explainable anomaly detection over high-dimensional time series data. Exathlon has been systematically constructed based on real data traces from repeated executions of large-scale stream processing jobs on an Apache Spark cluster. Some of these executions were intentionally disturbed by introducing instances of six different types of anomalous events (e.g., misbehaving inputs, resource contention, process failures). For each of the anomaly instances, ground truth labels for the root cause interval as well as those for the extended effect interval are provided, supporting the development and evaluation of a wide range of anomaly detection (AD) and explanation discovery (ED) tasks. We demonstrate the practical utility of Exathlon’s dataset, evaluation methodology, and end-to end data science pipeline design through an experimental study with three state-of-the-art AD and ED techniques.*
 
 This repository contains the source code for the experimental study of the paper.
+
+## Pipeline Overview
+
+![Pipeline](img/pipeline.png "Project Pipeline")
+
+## Benchmark Design
+
+![Design](img/design_table.png "Benchmark Design")
+
+## Dataset Overview
+
+![Dataset](img/data_table.png "Data Description")
+
+
+
+See the`data` folder for a more detailed description of the provided data.
 
 ## Configure this Project
 
@@ -20,6 +36,7 @@ conda install -c conda-forge --yes --file requirements.txt
 At the root of the project folder, create a `.env` file containing the lines:
 
 ```bash
+USED_DATA=SPARK
 DATA_ROOT=path/to/used/data/root
 OUTPUTS_ROOT=path/to/pipeline/outputs
 ```
@@ -39,3 +56,4 @@ Some results and logging paths might exceed the Windows historical path length l
 >After changing the above option, no further configuration is required.
 >
 >Changed in version 3.6: Support for long paths was enabled in Python. 
+
