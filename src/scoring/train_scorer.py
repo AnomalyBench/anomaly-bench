@@ -14,7 +14,7 @@ from utils.common import (
     hyper_to_path, parsers, get_output_path, get_dataset_names, get_scoring_args,
     get_evaluation_string, forecasting_choices, reconstruction_choices
 )
-from data.helpers import load_mixed_formats
+from data.helpers import load_datasets_data, load_mixed_formats
 
 from modeling.data_splitters import get_splitter_classes
 from modeling.forecasting.helpers import get_trimmed_periods
@@ -40,11 +40,7 @@ if __name__ == '__main__':
 
     # load the periods records, labels and information used to evaluate the outlier scores
     scoring_sets = get_dataset_names(args.threshold_supervision, disturbed_only=True)
-    scoring_file_names = [fn for n in scoring_sets for fn in [n, f'y_{n}', f'{n}_info']]
-    n_scoring_sets = len(scoring_sets)
-    scoring_file_paths = n_scoring_sets * (2 * [DATA_INPUT_PATH] + [DATA_INFO_PATH])
-    scoring_file_formats = n_scoring_sets * (2 * ['numpy'] + ['pickle'])
-    scoring_data = load_mixed_formats(scoring_file_paths, scoring_file_names, scoring_file_formats)
+    scoring_data = load_datasets_data(DATA_INPUT_PATH, DATA_INFO_PATH, scoring_sets)
 
     # load the model and scoring classes for the relevant type of task
     a_m = 'supported models are limited to forecasting-based and reconstruction-based models'

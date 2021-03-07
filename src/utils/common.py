@@ -21,7 +21,8 @@ PIPELINE_STEPS = [
     'build_features',
     'train_model',
     'train_scorer',
-    'train_detector'
+    'train_detector',
+    'train_explainer'
 ]
 
 # output paths
@@ -110,7 +111,7 @@ def get_output_path(args, pipeline_step, output_details=None):
             task_args += [args.window_size, args.window_step]
         model_args = get_model_args(args)
         path_extensions['train_model'] = os.path.join(
-            hyper_to_path(*splitting_args, task_name, *task_args),
+            hyper_to_path('ad', *splitting_args, task_name, *task_args),
             hyper_to_path(args.model_type, *model_args)
         )
     if step_index >= 3:
@@ -127,8 +128,16 @@ def get_output_path(args, pipeline_step, output_details=None):
             thresholding_args += [args.n_bins, args.n_bin_trials]
         if args.threshold_selection in two_stat_ts_sel_choices:
             thresholding_args += [args.thresholding_factor, args.n_iterations, args.removal_factor]
+        # output path depends on the threshold selection supervision
+        evaluation_args = [get_evaluation_string(args)] if args.threshold_supervision == 'supervised' else []
         path_extensions['train_detector'] = os.path.join(
-            hyper_to_path(get_evaluation_string(args), args.threshold_selection, *thresholding_args)
+            *evaluation_args, hyper_to_path(args.threshold_selection, *thresholding_args)
+        )
+    if step_index >= 5:
+        # explanation discovery
+        explanation_args = get_explanation_args(args)
+        path_extensions['train_explainer'] = os.path.join(
+            hyper_to_path(args.explanation_method, *explanation_args)
         )
     if pipeline_step == 'make_datasets':
         return os.path.join(
@@ -142,8 +151,20 @@ def get_output_path(args, pipeline_step, output_details=None):
             path_extensions['make_datasets'],
             path_extensions['build_features']
         )
-    # either `train_model`, `train_scorer` or `train_detector` here
-    extensions_chain = [path_extensions[PIPELINE_STEPS[i]] for i in range(step_index + 1)]
+    # either `train_model`, `train_scorer`, `train_detector` or `train_explainer` here
+    if not (
+            pipeline_step == 'train_explainer'
+            and args.explanation_method in model_free_explanation_choices
+            and args.explained_predictions == 'ground.truth'
+    ):
+        extensions_chain = [path_extensions[PIPELINE_STEPS[i]] for i in range(step_index + 1)]
+    # adjust the extensions chain of `train_explainer` if no AD model is involved in deriving explanations
+    else:
+        # the chain is then just data => features => explanation
+        chain_ids = [PIPELINE_STEPS.index('make_datasets'), PIPELINE_STEPS.index('build_features'), step_index]
+        extensions_chain = [path_extensions[PIPELINE_STEPS[i]] for i in chain_ids]
+        # add "ed" prefix to visually separate from the AD + ED path
+        extensions_chain[-1] = hyper_to_path('ed', extensions_chain[-1])
     # return either the current step model's path (default) or the step comparison path
     comparison_path = os.path.join(
         MODELS_ROOT,
@@ -235,7 +256,7 @@ def get_modeling_task_string(args):
         full_task_args += [args.n_back, args.n_forward, 'forecasting']
     elif args.model_type in reconstruction_choices:
         full_task_args += [args.window_size, args.window_step, 'reconstruction']
-    return hyper_to_path(*full_task_args)
+    return hyper_to_path('ad', *full_task_args)
 
 
 def get_model_args(args):
@@ -346,6 +367,25 @@ def get_scoring_args(args):
     return scoring_args
 
 
+def get_explanation_args(args):
+    """Returns a relevant and ordered list of explanation discovery argument values from `args`.
+
+    Args:
+        args (argparse.Namespace): parsed command-line arguments.
+
+    Returns:
+        list: relevant list of explanation discovery argument values corresponding to `args`.
+    """
+    explanation_args = []
+    if args.explanation_method == 'exstream':
+        explanation_args += [args.exstream_tolerance, args.exstream_correlation_threshold]
+    if args.explanation_method == 'macrobase':
+        explanation_args += [args.macrobase_r, args.macrobase_n_bins, args.macrobase_min_support]
+    if args.explanation_method == 'lime':
+        explanation_args += [args.lime_n_features]
+    return explanation_args
+
+
 def get_thresholding_args(args):
     """Returns a relevant and ordered list of thresholding argument values from `args`.
 
@@ -382,6 +422,25 @@ def get_evaluation_string(args):
             args.precision_omega, args.precision_delta, args.precision_gamma
         ]
     return hyper_to_path(*full_evaluation_args)
+
+
+def get_explanation_evaluation_str(args):
+    """Returns the explanation discovery evaluation arguments string based on the command-line arguments.
+
+    This string can be used as a prefix for models comparison to make sure they are compared
+    under the same requirements.
+
+    Args:
+        args (argparse.Namespace): parsed command-line arguments.
+
+    Returns:
+        str: the evaluation string, in the regular path-like format.
+    """
+    exp_evaluation_args = [
+        args.exp_eval_min_sample_length, args.exp_eval_min_anomaly_length,
+        args.exp_eval_n_runs, args.exp_eval_test_prop
+    ]
+    return hyper_to_path('ed', *exp_evaluation_args)
 
 
 def is_percentage(x):
@@ -475,13 +534,22 @@ delta_choices = ['flat', 'front', 'back']
 # fully allow duplicates, fully penalize them or penalize them using an inverse polynomial penalty
 gamma_choices = ['dup', 'no.dup', 'inv.poly']
 
-# TRAIN DETECTOR
+# TRAIN_DETECTOR
 # methods for selecting the outlier score threshold
 supervised_ts_sel_choices = ['smallest', 'largest', 'brent', 'search']
 two_stat_ts_sel_choices = ['std', 'mad', 'iqr']
 unsupervised_ts_sel_choices = two_stat_ts_sel_choices
 # supervised threshold selection target if multiple event types (avg or global performance)
 sup_threshold_target_choices = ['avg.perf', 'global.perf']
+
+# TRAIN_EXPLAINER
+model_free_explanation_choices = ['exstream', 'macrobase']
+model_based_explanation_choices = ['lime']
+explanation_choices = model_free_explanation_choices + model_based_explanation_choices
+explained_predictions_choices = ['ground.truth', 'model.predictions']
+
+# RUN_PIPELINE
+pipeline_type_choices = ['ad', 'ed', 'ad.ed']
 
 # arguments for `make_datasets.py`
 parsers['make_datasets'] = argparse.ArgumentParser(
@@ -838,18 +906,81 @@ parsers['train_detector'].add_argument(
     '--removal-factor', default=DEFAULTS['removal_factor'], nargs='+', type=float,
     help='scores above `removal_factor * ts@{iteration_i}` will be removed for iteration i+1 (list to try)'
 )
+# additional arguments for `train_explainer.py`
+parsers['train_explainer'] = argparse.ArgumentParser(
+    parents=[parsers['train_detector']],
+    description='Train an explanation discovery model to explain positive predictions', add_help=False
+)
+parsers['train_explainer'].add_argument(
+    '--explanation-method', default=DEFAULTS['explanation_method'], choices=explanation_choices,
+    help='explanation discovery method'
+)
+parsers['train_explainer'].add_argument(
+    '--explained-predictions', default=DEFAULTS['explained_predictions'], choices=explained_predictions_choices,
+    help='positive predictions to explain (ground truth or outputs of a model)'
+)
+# evaluation parameters
+parsers['train_explainer'].add_argument(
+    '--exp-eval-min-sample-length', default=DEFAULTS['exp_eval_min_sample_length'], type=int,
+    help='minimum length of an explanation sample for it to be counted in the evaluation'
+)
+parsers['train_explainer'].add_argument(
+    '--exp-eval-min-anomaly-length', default=DEFAULTS['exp_eval_min_anomaly_length'], type=int,
+    help='minimum length of an anomaly for it to be counted in the evaluation'
+)
+parsers['train_explainer'].add_argument(
+    '--exp-eval-n-runs', default=DEFAULTS['exp_eval_n_runs'], type=int,
+    help='number of evaluation runs for a sample\'s explanation'
+)
+parsers['train_explainer'].add_argument(
+    '--exp-eval-test-prop', default=DEFAULTS['exp_eval_test_prop'], type=is_percentage,
+    help='proportion of records used as test for evaluating the explanation of a sample'
+)
+# EXstream hyperparameters
+parsers['train_explainer'].add_argument(
+    '--exstream-tolerance', default=DEFAULTS['exstream_tolerance'], type=float,
+    help='tolerance hyperparameter for the EXstream explanation discovery method'
+)
+parsers['train_explainer'].add_argument(
+    '--exstream-correlation-threshold', default=DEFAULTS['exstream_correlation_threshold'], type=float,
+    help='correlation threshold hyperparameter for the EXstream explanation discovery method'
+)
+# MacroBase hyperparameters
+parsers['train_explainer'].add_argument(
+    '--macrobase-r', default=DEFAULTS['macrobase_r'], type=float,
+    help='`r` parameter for the MacroBase explanation discovery method'
+)
+parsers['train_explainer'].add_argument(
+    '--macrobase-n-bins', default=DEFAULTS['macrobase_n_bins'], type=int,
+    help='number of bins for the MacroBase explanation discovery method'
+)
+parsers['train_explainer'].add_argument(
+    '--macrobase-min-support', default=DEFAULTS['macrobase_r'], type=is_percentage,
+    help='minimum support for the MacroBase explanation discovery method'
+)
+# LIME hyperparameters
+parsers['train_explainer'].add_argument(
+    '--lime-n-features', default=DEFAULTS['lime_n_features'], type=int,
+    help='number of features in the explanation of LIME'
+)
 # additional arguments for `run_pipeline.py`
 parsers['run_pipeline'] = argparse.ArgumentParser(
-    parents=[parsers['train_detector']], description='Run a complete anomaly detection pipeline', add_help=False
+    parents=[parsers['train_explainer']], description='Run a complete pipeline', add_help=False
+)
+parsers['run_pipeline'].add_argument(
+    '--pipeline-type', default=DEFAULTS['pipeline_type'], choices=pipeline_type_choices,
+    help='type of pipeline to run (AD only, ED only or AD + ED)'
 )
 
 # add data-specific arguments
 add_specific_args = importlib.import_module(f'utils.{os.getenv("USED_DATA").lower()}').add_specific_args
-for k in 'make_datasets', 'build_features', 'train_model', 'train_scorer', 'train_detector':
+for k in 'make_datasets', 'build_features', 'train_model', 'train_scorer', 'train_detector', 'train_explainer':
     parsers = add_specific_args(parsers, k, PIPELINE_STEPS)
 
 # add back `help` arguments to parent parsers
-for key in 'make_datasets', 'build_features', 'train_model', 'train_scorer', 'train_detector', 'run_pipeline':
+for key in \
+        'make_datasets', 'build_features', 'train_model', 'train_scorer', 'train_detector', \
+        'train_explainer', 'run_pipeline':
     parsers[key].add_argument(
         '-h', '--help', action='help', default=argparse.SUPPRESS, help='show this help message and exit'
     )

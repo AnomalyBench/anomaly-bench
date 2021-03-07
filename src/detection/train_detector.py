@@ -22,7 +22,7 @@ from utils.common import (
     hyper_to_path, parsers, get_output_path, get_evaluation_string, get_thresholding_args,
     get_dataset_names, forecasting_choices, reconstruction_choices
 )
-from data.helpers import load_mixed_formats
+from data.helpers import load_datasets_data, load_mixed_formats
 
 from modeling.data_splitters import get_splitter_classes
 from modeling.forecasting.helpers import get_trimmed_periods
@@ -50,13 +50,7 @@ if __name__ == '__main__':
 
     # load the periods, labels and information used to evaluate the final anomaly predictions
     thresholding_sets = get_dataset_names(args.threshold_supervision, disturbed_only=True)
-    thresholding_file_names = [fn for n in thresholding_sets for fn in [n, f'y_{n}', f'{n}_info']]
-    n_thresholding_sets = len(thresholding_sets)
-    thresholding_file_paths = n_thresholding_sets * (2 * [DATA_INPUT_PATH] + [DATA_INFO_PATH])
-    thresholding_file_formats = n_thresholding_sets * (2 * ['numpy'] + ['pickle'])
-    thresholding_data = load_mixed_formats(
-        thresholding_file_paths, thresholding_file_names, thresholding_file_formats
-    )
+    thresholding_data = load_datasets_data(DATA_INPUT_PATH, DATA_INFO_PATH, thresholding_sets)
 
     # load the model and scoring classes for the relevant type of task
     a_m = 'supported models are limited to forecasting-based and reconstruction-based models'

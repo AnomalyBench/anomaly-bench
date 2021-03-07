@@ -136,6 +136,23 @@ def load_mixed_formats(file_paths, file_names, file_formats):
     return files
 
 
+def load_datasets_data(input_path, info_path, dataset_names):
+    """Returns the periods records, labels and information for the provided dataset names.
+
+    Args:
+        input_path (str): input path from which to load the records and labels.
+        info_path (str): input path from which to load the periods information.
+        dataset_names (list): list of dataset names.
+
+    Returns:
+        dict: the datasets data, with keys of the form `{n}`, `y_{n}` and `{n}_info` (`n` the dataset name).
+    """
+    file_names = [fn for n in dataset_names for fn in [n, f'y_{n}', f'{n}_info']]
+    n_sets = len(dataset_names)
+    file_paths, file_formats = n_sets * (2 * [input_path] + [info_path]), n_sets * (2 * ['numpy'] + ['pickle'])
+    return load_mixed_formats(file_paths, file_names, file_formats)
+
+
 def extract_save_labels(period_dfs, labels_file_name, output_path):
     """Extracts and saves labels from the `Anomaly` columns of the provided period DataFrames.
 

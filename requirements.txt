@@ -7,3 +7,5 @@ pandas
 scikit-learn
 tensorflow==2.3.0
 tqdm
+mlxtend
+lime
