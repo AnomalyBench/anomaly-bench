@@ -14,12 +14,14 @@ import sys
 src_path = os.path.abspath(os.path.join(__file__, os.pardir, os.pardir))
 sys.path.append(src_path)
 from utils.common import forecasting_choices, reconstruction_choices
-from explanation.explainers import Explainer, get_entropy
+from explanation.explainers import Explainer, get_list_entropy
 from explanation.lime_method.helpers import get_important_fts
 
 
 class LIME(Explainer):
     """LIME explanation discovery method.
+
+    See https://arxiv.org/pdf/1602.04938.pdf for details.
     """
     def __init__(self, args, output_path, explained_model, normal_model_samples):
         super().__init__(args, output_path, explained_model, normal_model_samples)
@@ -29,19 +31,21 @@ class LIME(Explainer):
             mode='regression', discretize_continuous=True, discretizer='decile'
         )
         # method-specific hyperparameters
-        self.model_w_size = args.window_size
+        if args.model_type in reconstruction_choices:
+            self.model_w_size = args.window_size
+        else:
+            # the window score is then the average score of its `n_forward` last records
+            self.model_w_size = args.n_back + args.n_forward
         self.n_features = args.lime_n_features
 
     def fit_sample_parameters(self, sample, sample_labels):
         pass
 
     def fit_evaluate_sample(self, sample, sample_labels, test_prop=0.2, n_runs=5):
-        """"""
         metrics = dict()
-        # fit sample parts, feature clusters and false positive features
         self.fit_sample(sample, sample_labels)
 
-        # get important features using the whole sample data (multiple windows for covering the whole anomaly)
+        # get important features using the whole sample data (multiple windows are used to cover the whole anomaly)
         test_windows, test_start_ids = self.get_sample_windows(sample, extraction_purpose='coverage')
         test_important_fts = []
         for i in range(len(test_start_ids)):
@@ -56,15 +60,33 @@ class LIME(Explainer):
         runs_important_fts = []
         start_time = time.time()
         for i in range(len(run_start_ids)):
+            # get LIME Explanation object
             exp = self.explainer.explain_instance(
                 run_windows[i:i+1], self.explained_model.score_windows, num_features=self.n_features
             )
+            print(exp)
+            # get important features from LIME explanation
             runs_important_fts.extend(get_important_fts(exp))
+        # average time to fit and evaluate the explanation method
         metrics['fit_eval_time'] = time.time() - start_time
-        metrics['local_stability'] = get_entropy(sample.shape[1], runs_important_fts)
+        # use important features across runs to compute the local stability
+        metrics['local_stability'] = get_list_entropy(runs_important_fts, sample.shape[1])
         return metrics
 
     def get_sample_windows(self, sample, extraction_purpose, n_runs=None):
+        """Returns windows and start indices for `sample` for either anomaly coverage or
+            a stability experiment.
+
+        Args:
+            sample (ndarray): sample of shape `(sample_size, n_features)`, consisting in a
+                normal period followed by an anomalous period.
+            extraction_purpose (str): purpose of window extraction (either "coverage" or "stability").
+            n_runs (int): number of windows to extract if the purpose is a stability experiment.
+
+        Returns:
+            ndarray, list: the extracted windows of shape `(n_windows, self.model_w_size, n_features)`,
+                along with their start indices.
+        """
         a_t = 'windows must either be extracted for `coverage` or an experiment on `stability`'
         assert extraction_purpose in ['coverage', 'stability'], a_t
         anomaly_start_idx, anomaly_end_idx = len(self.normal_part), len(sample)

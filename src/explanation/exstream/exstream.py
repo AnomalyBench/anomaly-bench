@@ -1,3 +1,5 @@
+"""EXstream explanation discovery module.
+"""
 import os
 import time
 
@@ -10,7 +12,7 @@ from sklearn.metrics import accuracy_score, precision_recall_fscore_support
 import sys
 src_path = os.path.abspath(os.path.join(__file__, os.pardir, os.pardir))
 sys.path.append(src_path)
-from explanation.explainers import Explainer, get_entropy
+from explanation.explainers import Explainer, get_list_entropy
 from explanation.exstream.helpers import (
     classify_records, get_feature_clusters, get_fp_features, segmentation, segmentation_entropy_reward
 )
@@ -18,8 +20,11 @@ from explanation.exstream.helpers import (
 
 class EXstream(Explainer):
     """EXstream explanation discovery method.
+
+    See http://www.lix.polytechnique.fr/Labo/Yanlei.Diao/publications/xstream-edbt2017.pdf for details.
     """
-    def __init__(self, args, output_path):
+    def __init__(self, args, output_path, explained_model=None, normal_model_samples=None):
+        # this method never uses an explained model nor normal model samples
         super().__init__(args, output_path)
         # method-specific sample parameters
         self.feature_clusters = None
@@ -31,12 +36,11 @@ class EXstream(Explainer):
     def fit_sample_parameters(self, sample, sample_labels):
         # get feature clusters from the whole sample
         self.feature_clusters = get_feature_clusters(pd.DataFrame(sample))
-        # get false positive features from the normal part
+        # get false positive features from the normal part only
         self.fp_features = get_fp_features(self.normal_part)
 
     def fit_evaluate_sample(self, sample, sample_labels, test_prop=0.2, n_runs=5):
         metrics = dict()
-        # fit sample parts, feature clusters and false positive features
         self.fit_sample(sample, sample_labels)
 
         # get important features using the whole sample data
@@ -49,42 +53,56 @@ class EXstream(Explainer):
         for k in classification_keys:
             metrics[k] = []
         for _ in range(n_runs):
-            # generate train test split;
+            # train/test split
             normal_train, normal_test, = train_test_split(self.normal_part, test_size=test_prop, random_state=None)
             anomalous_train, anomalous_test, = train_test_split(
                 self.anomalous_part, test_size=test_prop, random_state=None
             )
-            # important features, anomalous intervals and important scores
-            important_fts, anomalous_ft_intervals, importance_scores = \
+            # important features, anomalous segments and importance scores
+            important_fts, anomalous_ft_segments, importance_scores = \
                 self.explain_records(normal_train, anomalous_train)
             runs_important_fts.append(important_fts)
-            # classification performance using the explanation rules
-            y_true = np.concatenate([np.zeros(shape=(len(normal_test),)), np.ones(shape=(len(anomalous_test),))])
+            # classification performance using the explanations as rules
+            y_true = np.concatenate([np.zeros(shape=len(normal_test)), np.ones(shape=len(anomalous_test))])
             y_pred = classify_records(
-                np.concatenate([normal_test, anomalous_test]), important_fts, anomalous_ft_intervals
+                np.concatenate([normal_test, anomalous_test]), important_fts, anomalous_ft_segments
             )
             metrics['accuracy'].append(accuracy_score(y_true, y_pred))
             p, r, f, _ = precision_recall_fscore_support(y_true, y_pred, average='binary', zero_division=0)
             for k, v in zip(classification_keys[1:], [p, r, f]):
                 metrics[k].append(v)
-        # record average time to fit and evaluation the explanation method
+        # average time to fit and evaluate the explanation method
         metrics['fit_eval_time'] = (time.time() - start_time) / n_runs
         # average classification metrics across runs
         for k in classification_keys:
             metrics[k] = sum(metrics[k]) / len(metrics[k])
         # use important features across runs to compute the local stability
-        metrics['local_stability'] = get_entropy(sample.shape[1], runs_important_fts)
+        metrics['local_stability'] = get_list_entropy(runs_important_fts, sample.shape[1])
         return metrics
 
     def explain_records(self, normal_records, anomalous_records):
-        # single feature rewards and abnormal segments
+        """Returns features that are important in telling apart normal from anomalous records.
+
+        Also, returns the anomalous "segments" (intervals) and importance scores (rewards) for
+        the corresponding features.
+
+
+        Args:
+            normal_records (ndarray): normal records of shape `(n_normal_records, n_features)`.
+            anomalous_records (ndarray): anomalous records of shape `(n_anomalous_records, n_features)`.
+
+        Returns:
+            list, list, list: important features, anomalous segments and importance scores.
+        """
+        # rewards and anomalous value "segments" (i.e. intervals) for each feature
         feature_rewards = np.zeros(normal_records.shape[1])
         anomalous_segments = []
         for ft in range(normal_records.shape[1]):
-            TSA, TSR = anomalous_records[:, ft], normal_records[:, ft]
-            normal, abnormal, mixed, len_segment = segmentation(TSA, TSR)
-            feature_rewards[ft] = segmentation_entropy_reward(TSA, TSR, normal, abnormal, mixed, len_segment)
-            anomalous_segments.append([(x[0], x[1]) for x in abnormal] + [(x[0], x[1]) for x in mixed])
+            # get reference and anomalous univariate time series for the feature
+            tsr, tsa = normal_records[:, ft], anomalous_records[:, ft]
+            normal, anomalous, mixed, len_segment = segmentation(tsa, tsr)
+            feature_rewards[ft] = segmentation_entropy_reward(tsa, tsr, normal, anomalous, mixed, len_segment)
+            anomalous_segments.append([(x[0], x[1]) for x in anomalous] + [(x[0], x[1]) for x in mixed])
 
         # false positive filtering
         if len(self.fp_features) > 0:
@@ -92,8 +110,10 @@ class EXstream(Explainer):
 
         # get sorted feature rewards
         sorted_ft_rewards = sorted(feature_rewards, reverse=True)
-        # 1 step diff of sorted feature rewards
-        diff_sorted_ft_rewards = [sorted_ft_rewards[i] - sorted_ft_rewards[i+1] for i in range(len(sorted_ft_rewards) - 1)]
+        # first order difference of sorted feature rewards
+        diff_sorted_ft_rewards = [
+            sorted_ft_rewards[i] - sorted_ft_rewards[i+1] for i in range(len(sorted_ft_rewards) - 1)
+        ]
         # only keep the features before the sharp drop
         leap_features = list(np.argwhere(
             feature_rewards < sorted_ft_rewards[diff_sorted_ft_rewards.index(max(diff_sorted_ft_rewards))]
@@ -111,9 +131,9 @@ class EXstream(Explainer):
             if i not in clusters_representative:
                 feature_rewards[i] = 0
 
-        # getting important features
+        # get important features
         important_features = list(np.argwhere(feature_rewards != 0)[:, 0])
-        important_fs = important_features.copy()
+        important_fts = important_features.copy()
 
-        return important_fs, \
+        return important_fts, \
             [anomalous_segments[i] for i in important_features], list(feature_rewards[important_features])

@@ -152,19 +152,20 @@ def get_output_path(args, pipeline_step, output_details=None):
             path_extensions['build_features']
         )
     # either `train_model`, `train_scorer`, `train_detector` or `train_explainer` here
-    if not (
-            pipeline_step == 'train_explainer'
-            and args.explanation_method in model_free_explanation_choices
-            and args.explained_predictions == 'ground.truth'
-    ):
-        extensions_chain = [path_extensions[PIPELINE_STEPS[i]] for i in range(step_index + 1)]
-    # adjust the extensions chain of `train_explainer` if no AD model is involved in deriving explanations
-    else:
-        # the chain is then just data => features => explanation
-        chain_ids = [PIPELINE_STEPS.index('make_datasets'), PIPELINE_STEPS.index('build_features'), step_index]
+    if pipeline_step == 'train_explainer' and args.explained_predictions == 'ground.truth':
+        # no AD model involved in the explanations at all
+        if args.explanation_method in model_free_explanation_choices:
+            # the chain is then just data => features => explanation
+            chain_ids = [PIPELINE_STEPS.index('make_datasets'), PIPELINE_STEPS.index('build_features'), step_index]
+        # no model predictions involved
+        else:
+            # the chain then stops at `train_scorer`, the explained model being for now a scorer only
+            chain_ids = list(range(PIPELINE_STEPS.index('train_scorer') + 1)) + [step_index]
         extensions_chain = [path_extensions[PIPELINE_STEPS[i]] for i in chain_ids]
-        # add "ed" prefix to visually separate from the AD + ED path
+        # add "ed" prefix to visually separate from anomaly detection tasks
         extensions_chain[-1] = hyper_to_path('ed', extensions_chain[-1])
+    else:
+        extensions_chain = [path_extensions[PIPELINE_STEPS[i]] for i in range(step_index + 1)]
     # return either the current step model's path (default) or the step comparison path
     comparison_path = os.path.join(
         MODELS_ROOT,
@@ -256,6 +257,7 @@ def get_modeling_task_string(args):
         full_task_args += [args.n_back, args.n_forward, 'forecasting']
     elif args.model_type in reconstruction_choices:
         full_task_args += [args.window_size, args.window_step, 'reconstruction']
+    # add "ad" prefix to visually separate from explanation discovery tasks
     return hyper_to_path('ad', *full_task_args)
 
 
@@ -380,7 +382,7 @@ def get_explanation_args(args):
     if args.explanation_method == 'exstream':
         explanation_args += [args.exstream_tolerance, args.exstream_correlation_threshold]
     if args.explanation_method == 'macrobase':
-        explanation_args += [args.macrobase_r, args.macrobase_n_bins, args.macrobase_min_support]
+        explanation_args += [args.macrobase_min_risk_ratio, args.macrobase_n_bins, args.macrobase_min_support]
     if args.explanation_method == 'lime':
         explanation_args += [args.lime_n_features]
     return explanation_args
@@ -546,7 +548,7 @@ sup_threshold_target_choices = ['avg.perf', 'global.perf']
 model_free_explanation_choices = ['exstream', 'macrobase']
 model_based_explanation_choices = ['lime']
 explanation_choices = model_free_explanation_choices + model_based_explanation_choices
-explained_predictions_choices = ['ground.truth', 'model.predictions']
+explained_predictions_choices = ['ground.truth', 'model']
 
 # RUN_PIPELINE
 pipeline_type_choices = ['ad', 'ed', 'ad.ed']
@@ -947,15 +949,15 @@ parsers['train_explainer'].add_argument(
 )
 # MacroBase hyperparameters
 parsers['train_explainer'].add_argument(
-    '--macrobase-r', default=DEFAULTS['macrobase_r'], type=float,
-    help='`r` parameter for the MacroBase explanation discovery method'
+    '--macrobase-min-risk-ratio', default=DEFAULTS['macrobase_min_risk_ratio'], type=float,
+    help='minimum risk ratio for the MacroBase explanation discovery method'
 )
 parsers['train_explainer'].add_argument(
     '--macrobase-n-bins', default=DEFAULTS['macrobase_n_bins'], type=int,
     help='number of bins for the MacroBase explanation discovery method'
 )
 parsers['train_explainer'].add_argument(
-    '--macrobase-min-support', default=DEFAULTS['macrobase_r'], type=is_percentage,
+    '--macrobase-min-support', default=DEFAULTS['macrobase_min_support'], type=is_percentage,
     help='minimum support for the MacroBase explanation discovery method'
 )
 # LIME hyperparameters

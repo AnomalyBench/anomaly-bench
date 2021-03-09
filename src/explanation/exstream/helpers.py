@@ -1,25 +1,54 @@
-import operator
+"""EXstream helpers module.
+"""
 import math
+import operator
+
 
 import numpy as np
 import scipy.cluster.hierarchy as sch
 from sklearn.preprocessing import StandardScaler
 
 
-def classify_records(sample, important_fts, anomalous_ft_intervals):
+def classify_records(records, important_fts, anomalous_ft_segments):
+    """Returns the binary classification of each of the provided `records`
+        using `important_fts` and `anomalous_ft_segments` as rules.
+
+    Args:
+        records (ndarray): input records to classify of shape `(n_records, n_features)`.
+        important_fts (list): list of features to consider for classification.
+        anomalous_ft_segments: list of anomalous segments for each feature.
+
+    Returns:
+        ndarray: the binary array of classifications of shape `(n_records,)`.
+    """
     return np.array(
-        [classify_record(r, important_fts, anomalous_ft_intervals) for r in sample]
+        [classify_record(r, important_fts, anomalous_ft_segments) for r in records]
     )
 
 
-def classify_record(record, important_fts, anomalous_ft_intervals):
-    """Form (A OR B OR ...) AND (C OR D OR ...) AND ..."""
-    for ft, ft_intervals in zip(important_fts, anomalous_ft_intervals):
+def classify_record(record, important_fts, anomalous_ft_segments):
+    """Returns the binary classification for `record` using `important_fts`
+        and `anomalous_ft_segments` as rules.
+
+    A record is classified as anomalous if all its important features are anomalous.
+    A feature is defined as anomalous if its value belongs to one of its anomalous segments.
+
+    Args:
+        record (ndarray): record to classify of shape `(n_features,)`
+        important_fts (list): list of features to consider for classification.
+        anomalous_ft_segments: list of anomalous segments for each feature.
+
+    Returns:
+        int: the binary classification for the record.
+    """
+    for ft, ft_segments in zip(important_fts, anomalous_ft_segments):
         ft_pred = 0
-        for x1, x2 in ft_intervals:
+        for x1, x2 in ft_segments:
+            # a feature is anomalous if its value belongs to an anomalous segment
             if x1 <= record[ft] <= x2:
                 ft_pred = 1
                 break
+        # if not all features are anomalous, then the record is classified as normal
         if ft_pred == 0:
             return 0
     return 1
@@ -42,18 +71,27 @@ def get_feature_clusters(sample_df):
 
 
 def get_fp_features(normal_records):
-    # removing features with unusually high standard deviation
+    """Returns the "false positive features" (i.e. to not consider) for the provided
+        `normal_records`.
+
+    Args:
+        normal_records (ndarray): normal records of shape `(n_records, n_features)`.
+
+    Returns:
+        list: false positive features found for the provided records.
+    """
+    # remove features with unusually high standard deviation
     std = np.std(normal_records, axis=0)
     scaler = StandardScaler()
     D = scaler.fit_transform(std.reshape(-1, 1))
     false_positives = list(np.argwhere(D > 1.64)[:, 0])
 
-    # removing features which are striclty increasing or decreasing
+    # remove features which are strictly increasing or decreasing
     for f in range(normal_records.shape[1]):
         if f in false_positives:
             continue
         else:
-            # getting the moving mean
+            # get moving mean
             window_size = normal_records.shape[0] // 5
             if window_size == 0:
                 window_size = 1
@@ -63,67 +101,68 @@ def get_fp_features(normal_records):
                 avg_window = np.mean(x[i:i + window_size])
                 avg_sliding_window.append(avg_window)
 
+            # check for increasing and decreasing tendencies
             increasing = True
             decreasing = True
-            # checking fro increasing tendency
             for i in range(1, len(avg_sliding_window)):
-                if avg_sliding_window[i - 1] > avg_sliding_window[i]:
+                if avg_sliding_window[i-1] > avg_sliding_window[i]:
                     increasing = False
                     break
             for i in range(1, len(avg_sliding_window)):
-                if avg_sliding_window[i - 1] < avg_sliding_window[i]:
+                if avg_sliding_window[i-1] < avg_sliding_window[i]:
                     decreasing = False
                     break
-
             if increasing or decreasing:
                 false_positives.append(f)
     return false_positives
 
 
 def entropy(x):
+    """Returns the entropy of `x`."""
     x = np.asarray(x)
     return np.sum(-x * np.log(x))
 
 
-def class_entropy(TSA, TSR):
+def class_entropy(tsa, tsr):
+    """Returns the class entropy of `tsa` and `tsr`.
+
+    Args:
+        tsa (array-like): univariate anomalous time series.
+        tsr (array-like): univariate reference time series.
+
+    Returns:
+        float: the class entropy (h) of `tsa` and `tsr`.
     """
-    :param TSA: an abnormal trace time series (list)
-    :param TSR: a normal reference trace time series (list)
-    returns:
-    h: the class entropy of the two time series
-    """
-    l_A = len(TSA)
-    l_R = len(TSR)
-    s = l_A + l_R
-    p_A = l_A / s
-    p_R = l_R / s
-    h = entropy([p_A, p_R])
-    return h
+    l_a, l_r = len(tsa), len(tsr)
+    s = l_a + l_r
+    p_a, p_r = l_a / s, l_r / s
+    return entropy([p_a, p_r])
 
 
-def segmentation(TSA, TSR):
+def segmentation(tsa, tsr):
+    """Returns normal, abnormal and mixed value segments based on the provided anomalous
+        and reference time series.
+
+    Args:
+        tsa (array-like): univariate anomalous time series.
+        tsr (array-like): univariate reference time series.
+
+    Returns:
+        list, list, list, int: the normal, abnormal and mixed segments (all as lists of lists). The last
+            element returned is `len_segment == len(tsa) + len(tsr)`, only returned here for efficiency.
     """
-    :param TSA: an abnormal trace time series (list)
-    :param TSR: a normal reference trace time series (list)
-    return:
-    normal: the normal segments  (list of list)
-    abnormal: the abnormal segments (list of list)
-    mixed: the mixed segments (list of list)
-    len_segment: len(TSA)+len(TSR)
-    """
-    common_values = set(TSA).intersection(set(TSR))
-    tagged_TSA = [(v, -1) for v in TSA if v not in common_values]
-    tagged_TSR = [(v, 1) for v in TSR if v not in common_values]
-    tagged_common_TSA = [(v, 0) for v in TSA if v in common_values]
-    tagged_common_TSR = [(v, 0) for v in TSR if v in common_values]
-    segment = tagged_TSA + tagged_TSR + tagged_common_TSA + tagged_common_TSR
+    common_values = set(tsa).intersection(set(tsr))
+    tagged_tsa = [(v, -1) for v in tsa if v not in common_values]
+    tagged_tsr = [(v, 1) for v in tsr if v not in common_values]
+    tagged_common_tsa = [(v, 0) for v in tsa if v in common_values]
+    tagged_common_tsr = [(v, 0) for v in tsr if v in common_values]
+    segment = tagged_tsa + tagged_tsr + tagged_common_tsa + tagged_common_tsr
     segment.sort(key=operator.itemgetter(0))
     segment[0] = (-math.inf, segment[0][1])
     segment[-1] = (math.inf, segment[-1][1])
     normal = []
     abnormal = []
     mixed = []
-
     i = 0
     len_segment = len(segment)
     while i < len_segment:
@@ -147,55 +186,34 @@ def segmentation(TSA, TSR):
 
 
 def segmentation_entropy(normal, abnormal, mixed, len_segment):
-    """
-    computes the reguralized segmentation entropy between two intervals
+    """Returns the reguralized segmentation entropy between two intervals
+        given the output of the segmentation function.
 
-    input: the result of the segmentation function
-
-    return:
-    H: reguralized segmentation entropy (float)
+    Returns:
+        float: the reguralized segmentation entropy (H).
     """
     if len(normal) == 0 and len(abnormal) == 0:
         return 0.0
     else:
-
         H = entropy([x[2] / len_segment for x in normal])
         H += entropy([x[2] / len_segment for x in abnormal])
         H += entropy([x[2] / len_segment for x in mixed])
-        H += sum([x[2] for x in mixed]) * (1 / len_segment) * np.log(len_segment)  # regularization term
+        # add the regularization term
+        H += sum([x[2] for x in mixed]) * (1 / len_segment) * np.log(len_segment)
     return H
 
 
 # single-feature rewards
-def segmentation_entropy_reward(normal_trace, abnormal_trace, normal, abnormal, mixed, len_segment):
+def segmentation_entropy_reward(tsa, tsr, normal, abnormal, mixed, len_segment):
+    """Returns the segmentation entropy reward for `tsa` and `tsr`
+        given the output of the segmentation function.
+
+    Returns:
+        float: the segmentation entropy reward for `tsa` and `tsr`.
     """
-    Computes the segmentation entropy reward for a normal trace and an abnormal trace
-    :param: normal_trace: 1d np.array the normal time series
-    :param: abnormal_trace: 1d np.array the abnormal time series
-    :return:
-    reward: the segmentation entropy reward between the input traces
-    """
-    H_class = class_entropy(normal_trace, abnormal_trace)
+    H_class = class_entropy(tsr, tsa)
     H_segmentation = segmentation_entropy(normal, abnormal, mixed, len_segment)
     if H_segmentation == 0.0:
         return 0.0
     else:
         return H_class / H_segmentation
-
-
-def predict_record(record, important_fs, anomalous_segments):
-    """check whether a instance is anomalous."""
-    flag = 1
-    for f_index, f_segs in zip(important_fs, anomalous_segments):
-        flag = flag * partial_exp(record, f_index, f_segs)
-    return flag
-
-
-def partial_exp(record, feature, segs):
-    """check whether a instance satisfy a predicates in disconjunction."""
-    flag = 0
-    for seg in segs:
-        if seg[0] <= record[feature] <= seg[1]:
-            flag = 1
-            break
-    return flag

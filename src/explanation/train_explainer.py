@@ -1,7 +1,7 @@
-"""Explanation discovery module.
+"""Explanation discovery training module.
 
 The "Explainer" objects we currently use do not actually require any training. They
-operate on `[normal + anomaly]` sequences we call explanation "samples".
+operate on `(normal + anomaly)` sequences referred to as explanation "samples".
 """
 import os
 import time
@@ -30,6 +30,14 @@ from explanation.evaluation import save_explanation_evaluation
 
 
 def get_best_thresholding_args(args):
+    """Returns the provided `args` with the "best" thresholding parameters as for global F1-score on `test`.
+
+    Args:
+        args (argparse.Namespace): parsed command-line arguments.
+
+    Returns:
+        argparse.Namespace: updated args with best thresholding parameters.
+    """
     thresholding_comparison_path = get_output_path(args, 'train_detector', 'comparison')
     full_thresholding_comparison_path = os.path.join(
         thresholding_comparison_path, f'{get_evaluation_string(args)}_detection_comparison.csv'
@@ -41,15 +49,23 @@ def get_best_thresholding_args(args):
     return get_new_thresholding_args_from_str(args, best_thresholding_row.name[0])
 
 
-def get_new_thresholding_args_from_str(args, model_str):
-    # split and remove training timestamp
-    model_args = model_str.split('_')
-    # update and return args
+def get_new_thresholding_args_from_str(args, thresholding_str):
+    """Returns the provided `args` with thresholding parameters updated using `thresholding_str`.
+
+    Args:
+        args (argparse.Namespace): parsed command-line arguments.
+        thresholding_str (str): thresholding parameters string of the form
+            `{threshold_selection}_{thresholding_factor}_{n_iterations}_{removal_factor}`.
+
+    Returns:
+        argparse.Namespace: updated args with thresholding parameters from `thresholding_str`.
+    """
+    thresholding_args = thresholding_str.split('_')
     args_dict = vars(args)
-    args_dict['threshold_selection'] = model_args[0]
-    args_dict['thresholding_factor'] = float(model_args[1])
-    args_dict['n_iterations'] = int(model_args[2])
-    args_dict['removal_factor'] = float(model_args[3])
+    args_dict['threshold_selection'] = thresholding_args[0]
+    args_dict['thresholding_factor'] = float(thresholding_args[1])
+    args_dict['n_iterations'] = int(thresholding_args[2])
+    args_dict['removal_factor'] = float(thresholding_args[3])
     return argparse.Namespace(**args_dict)
 
 
@@ -65,10 +81,13 @@ if __name__ == '__main__':
     explanation_sets = get_dataset_names(args.threshold_supervision, disturbed_only=True)
     explanation_data = load_datasets_data(DATA_INPUT_PATH, DATA_INFO_PATH, explanation_sets)
 
-    # load AD model and/or model predictions if relevant
+    # types of events
+    event_types = EVENT_TYPES if args.data == 'spark' else None
+
+    # load scorer and/or detector predictions if relevant
     explained_model, normal_model_samples = None, None
     if args.explanation_method in model_based_explanation_choices or \
-            args.explained_predictions == 'model.predictions':
+            args.explained_predictions == 'model':
         # modeling and scoring output paths
         MODEL_INPUT_PATH = get_output_path(args, 'train_model')
         SCORER_INPUT_PATH = get_output_path(args, 'train_scorer')
@@ -91,6 +110,7 @@ if __name__ == '__main__':
         else:
             scorer = scoring_classes[args.scoring_method](args, model, '')
 
+        # model-based explanation methods require a scorer and normal samples in the scorer format
         if args.explanation_method in model_based_explanation_choices:
             explained_model = scorer
             print('loading training periods and information...', end=' ', flush=True)
@@ -111,8 +131,12 @@ if __name__ == '__main__':
             else:
                 normal_model_samples = np.array([(x, y) for x, y in zip(data['X_test'], data['y_test'])])
 
-        if args.explained_predictions == 'model.predictions':
-            # if not a single set of thresholding parameters was passed, pick the best tried for the method
+        # explanation methods working on predictions require the predictions made by a detector
+        if args.explained_predictions == 'model':
+            # model predictions being binary we consider all positive labels the same for now
+            event_types = None
+
+            # if not a single set of thresholding parameters was provided, pick the best tried for the method
             if type(args.threshold_selection) == list:
                 args = get_best_thresholding_args(args)
             # load the final detector with relevant threshold and replace labels with model predictions
@@ -133,11 +157,10 @@ if __name__ == '__main__':
     explainer = get_explanation_classes()[args.explanation_method](
         args, OUTPUT_PATH, explained_model, normal_model_samples
     )
-    # evaluate the explanations on the explanation data
+    # evaluate the explanations produced on the explanation data under the current configuration
     config_name = hyper_to_path(
         args.explanation_method, *get_explanation_args(args), time.strftime('run.%Y.%m.%d.%H.%M.%S')
     )
-    event_types = EVENT_TYPES if args.data == 'spark' else None
     save_explanation_evaluation(
         args, explanation_data, explainer, config_name, COMPARISON_PATH, event_types=event_types
     )

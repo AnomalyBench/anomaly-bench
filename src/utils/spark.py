@@ -166,11 +166,10 @@ DEFAULT_ARGS = {
     'exstream_tolerance': 0.9,
     'exstream_correlation_threshold': 0.5,
     # MacroBase hyperparameters
-    'macrobase_r': 1.0,
+    'macrobase_min_risk_ratio': 1.0,
     'macrobase_n_bins': 10,
-    # put 0.5 to handle executor failure event types
-    # 'macrobase_min_support': 0.4,
-    'macrobase_min_support': 0.5,
+    'macrobase_min_support': 0.4,
+    # 'macrobase_min_support': 0.5,
     # LIME hyperparameters
     'lime_n_features': 5,
 
@@ -227,7 +226,7 @@ def add_specific_args(parsers, pipeline_step, pipeline_steps):
         app_choices = [0] + app_ids
         arg_names.append('--app-id')
         arg_params.append({
-            'default': 1,
+            'default': 14,
             'choices': app_choices,
             'type': int,
             'help': 'application id (0 if all)'
