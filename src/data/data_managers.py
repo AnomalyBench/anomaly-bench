@@ -122,8 +122,6 @@ def get_management_classes():
     src_path = os.path.abspath(os.path.join(__file__, os.pardir, os.pardir))
     sys.path.append(src_path)
     from data.spark_manager import SparkManager
-    from data.otn_manager import OTNManager
     return {
-        'spark': SparkManager,
-        'otn': OTNManager
+        'spark': SparkManager
     }

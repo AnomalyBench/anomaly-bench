@@ -165,9 +165,7 @@ class StratifiedSplitter(DataSplitter):
 def get_splitter_classes():
     """Returns a dictionary gathering references to the defined data splitter classes.
     """
-    from modeling.otn_splitters import ServiceSplitter
     return {
         'random.split': RandomSplitter,
-        'stratified.split': StratifiedSplitter,
-        'service.split': ServiceSplitter
+        'stratified.split': StratifiedSplitter
     }

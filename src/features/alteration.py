@@ -101,11 +101,9 @@ def get_alteration_functions():
     src_path = os.path.abspath(os.path.join(__file__, os.pardir, os.pardir))
     sys.path.append(src_path)
     from features.spark_alteration import add_executors_avg, add_nodes_avg
-    from features.otn_alteration import add_network_gains
     return {
         'identity': apply_identity,
         'difference': add_differencing,
-        'gains': add_network_gains,
         'execavg': add_executors_avg,
         'nodeavg': add_nodes_avg,
         'window': add_window_features
@@ -188,8 +186,6 @@ def get_bundles_lists():
     src_path = os.path.abspath(os.path.join(__file__, os.pardir, os.pardir))
     sys.path.append(src_path)
     from features.spark_alteration import SPARK_BUNDLES
-    from features.otn_alteration import OTN_BUNDLES
     return {
         'spark_bundles': SPARK_BUNDLES,
-        'otn_bundles': OTN_BUNDLES,
     }

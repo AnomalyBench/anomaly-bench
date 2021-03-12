@@ -497,11 +497,11 @@ parsers = dict()
 
 # possible choices for categorical command-line arguments
 # MAKE_DATASETS
-data_choices = ['spark', 'otn']
+data_choices = ['spark']
 threshold_sup_choices = ['supervised', 'unsupervised']
 
 # BUILD_FEATURES
-alter_bundles_choices = ['.', 'spark_bundles', 'otn_bundles']
+alter_bundles_choices = ['.', 'spark_bundles']
 transform_choices = [
     f'{s}{d}' for s in [
         'regular_scaling', 'trace_scaling', 'head_scaling', 'head_online_scaling'
